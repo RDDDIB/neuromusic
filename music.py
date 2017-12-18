@@ -1,4 +1,5 @@
 # Imports
+import json
 import pylast
 
 API_KEY = "b0356f7a92ada951f46dac5d974d1490"
@@ -7,8 +8,7 @@ API_SECRET = "3ee63469d2d1eda8a0a34845364b8af6"
 # Sequence size
 SIZE = 4
 
-TRAIN = "history_train1.csv"
-TEST = "history_test1.csv"
+DATAFILE = "history_train1.json"
 
 
 class Entries:
@@ -55,14 +55,20 @@ class Entries:
     def genTitleIds(self):
         print("Generating title ids...")
         uniques = self.uniqueTitles()
-        self.title_ids = {title: pow(2, i) for i, title in enumerate(uniques)}
+        self.title_ids = {title: self.pad(i, len(uniques))
+                          for i, title in enumerate(uniques)}
         print("Done")
 
     def genTagIds(self):
         print("Generating tag ids...")
-        self.tag_ids = {tag: pow(2, i) if tag is not "na" else 0
+        uniques = self.uniqueTags()
+        self.tag_ids = {tag: self.pad(i, len(uniques))
+                        if tag is not "na" else [0] * len(uniques)
                         for i, tag in enumerate(self.tags)}
         print("Done")
+
+    def pad(self, pos, length):
+        return [0] * pos + [1] + [0] * (length - pos)
 
     def setup(self):
         self.genTags()
@@ -70,15 +76,34 @@ class Entries:
         self.genTitles()
         self.genTitleIds()
 
+    def sumvec(self, vec1, vec2):
+        result = []
+        for i in range(min(len(vec1), len(vec2))):
+            result.append(vec1[i] + vec2[i])
+        return result
+
+    def sumrange(self, col, start, dist):
+        end = start + dist
+        length = len(col)
+        result = [0] * length
+        if start >= length:
+            return result
+        for i in range(start, min(length, end)):
+            result = self.sumvec(result, col[i])
+        return result
+
     def genData(self):
         titles = [self.title_ids[song] for song in self.titles]
         tags = [self.tag_ids[tag] for tag in self.tags]
-        train_input = [sum(titles[i:i + SIZE])
-                       for i in range(0, len(titles), SIZE)]
-        train_labels = [sum(tags[i:i + SIZE])
-                        for i in range(0, len(tags), SIZE)]
+        # train_input = [sum(titles[i:i + SIZE])
+        #                for i in range(0, len(titles), SIZE)]
+        train_input = [self.sumrange(titles, i, SIZE)
+                       for i in range(0, len(titles) - SIZE)]
+        train_labels = [self.sumrange(tags, i, SIZE)
+                        for i in range(0, len(tags) - SIZE)]
         expected = titles[SIZE-1::SIZE]
-        return (train_input, train_labels, expected)
+        return [(train_input[i] + train_labels[i], expected[i])
+                for i in range(len(expected))]
 
 
 def main():
@@ -90,19 +115,12 @@ def main():
     entries.setup()
     print("Processed!\nPreparing training data...")
     data = entries.genData()
-    ll = len(data[2])
+    print(data)
+    ll = len(data[1])
     l = int(train_ratio * ll)
-    dump = [(data[0][i], data[1][i], data[2][i]) for i in range(l)]
-    print("Dumping training data to %s" % TRAIN)
-    with open(TRAIN, 'w') as file:
-        file.write("%d,2,input,label,output\n" % len(dump))
-        file.write("\n".join(["%d,%d,%d" % entry for entry in dump]))
-    print("Preparing training data...")
-    dump = [(data[0][i], data[1][i], data[2][i]) for i in range(l, ll)]
-    print("Dumping test data to %s" % TEST)
-    with open(TEST, 'w') as file:
-        file.write("%d,2,input,label,output\n" % len(dump))
-        file.write("\n".join(["%d,%d,%d" % entry for entry in dump]))
+    print("Dumping data to %s" % DATAFILE)
+    with open(DATAFILE, 'w') as file:
+        json.dump({"train": data[:l], "test": data[l:ll]}, file)
     print("All done!")
 
 if __name__ == "__main__":
