@@ -1,6 +1,7 @@
 # Imports
 import json
 import pylast
+import random
 
 API_KEY = "b0356f7a92ada951f46dac5d974d1490"
 API_SECRET = "3ee63469d2d1eda8a0a34845364b8af6"
@@ -36,9 +37,6 @@ class Entries:
 
     def genTags(self):
         print("Retrieving tags...")
-        # temp = [song.track.get_top_tags() for song in self.entries]
-        # self.tags = [tag[0].item.name if len(tag) is not 0 else "na"
-        #              for tag in temp]
         for song in self.entries:
             try:
                 self.tags.append(song.track.get_top_tags()[0].item.name)
@@ -53,6 +51,7 @@ class Entries:
         return list(set(self.tags))
 
     def genTitleIds(self):
+        """Create a dict with string keys and onehot vector values."""
         print("Generating title ids...")
         uniques = self.uniqueTitles()
         self.title_ids = {title: self.pad(i, len(uniques))
@@ -60,15 +59,19 @@ class Entries:
         print("Done")
 
     def genTagIds(self):
+        """Create a dict with string keys and onehot vector values."""
         print("Generating tag ids...")
         uniques = self.uniqueTags()
         self.tag_ids = {tag: self.pad(i, len(uniques))
                         if tag is not "na" else [0] * len(uniques)
-                        for i, tag in enumerate(self.tags)}
+                        for i, tag in enumerate(uniques)}
         print("Done")
 
     def pad(self, pos, length):
-        return [0] * pos + [1] + [0] * (length - pos)
+        """Create a onehot vector."""
+        temp = [0] * length
+        temp[pos] = 1
+        return temp
 
     def setup(self):
         self.genTags()
@@ -77,12 +80,14 @@ class Entries:
         self.genTitleIds()
 
     def sumvec(self, vec1, vec2):
+        """Add two onehot vectors."""
         result = []
         for i in range(min(len(vec1), len(vec2))):
             result.append(vec1[i] + vec2[i])
         return result
 
     def sumrange(self, col, start, dist):
+        """Fold the sumvec function over the data"""
         end = start + dist
         length = len(col)
         result = [0] * length
@@ -93,17 +98,16 @@ class Entries:
         return result
 
     def genData(self):
+        """Generate a list of input/output tuples and the title dict."""
         titles = [self.title_ids[song] for song in self.titles]
         tags = [self.tag_ids[tag] for tag in self.tags]
-        # train_input = [sum(titles[i:i + SIZE])
-        #                for i in range(0, len(titles), SIZE)]
         train_input = [self.sumrange(titles, i, SIZE)
                        for i in range(0, len(titles) - SIZE)]
         train_labels = [self.sumrange(tags, i, SIZE)
                         for i in range(0, len(tags) - SIZE)]
         expected = titles[SIZE-1::SIZE]
         return [(train_input[i] + train_labels[i], expected[i])
-                for i in range(len(expected))]
+                for i in range(len(expected))], self.title_ids
 
 
 def main():
@@ -114,13 +118,15 @@ def main():
     print("Processing data...")
     entries.setup()
     print("Processed!\nPreparing training data...")
-    data = entries.genData()
-    print(data)
-    ll = len(data[1])
+    data, ids = entries.genData()
+    random.shuffle(data)
+    ll = len(data)
     l = int(train_ratio * ll)
     print("Dumping data to %s" % DATAFILE)
     with open(DATAFILE, 'w') as file:
-        json.dump({"train": data[:l], "test": data[l:ll]}, file)
+        json.dump({"train": data[:l],
+                   "test": data[l:ll],
+                   "keys": ids}, file)
     print("All done!")
 
 if __name__ == "__main__":

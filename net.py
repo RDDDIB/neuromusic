@@ -5,15 +5,14 @@ from __future__ import print_function
 import argparse
 import json
 import music
+from numpy import random as npr
 import os
-import random
 import sys
 import tempfile
 import tensorflow as tf
 
 # Data sets
-TRAIN_FILE = "history_train1.csv"
-TEST_FILE = "history_test1.csv"
+TRAIN_FILE = "history_train1.json"
 ID_LENGTH = None
 TOTAL = None
 
@@ -21,35 +20,27 @@ FLAGS = None
 
 
 def deepnn(x):
+    # Fully connected layer 1
     with tf.name_scope('fc1'):
         W_fc1 = weight_variable([TOTAL, 1024])
         b_fc1 = bias_variable([1024])
 
     h_fc1 = tf.nn.relu(tf.matmul(x, W_fc1) + b_fc1)
 
+    # Fully connected layer 2
     with tf.name_scope('fc2'):
         W_fc2 = weight_variable([1024, 1024])
         b_fc2 = bias_variable([1024])
 
     h_fc2 = tf.nn.relu(tf.matmul(h_fc1, W_fc2) + b_fc2)
 
+    # Fully connected layer 3
     with tf.name_scope('fc3'):
         W_fc3 = weight_variable([1024, ID_LENGTH])
         b_fc3 = bias_variable([ID_LENGTH])
 
     y_conv = tf.matmul(h_fc2, W_fc3) + b_fc3
     return y_conv
-
-
-def conv2d(x, W):
-    """conv2d returns a 2d convolution layer with full stride."""
-    return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
-
-
-def max_pool_2x2(x):
-    """max_pool_2x2 downsamples a feature map by 2X."""
-    return tf.nn.max_pool(x, ksize=[1, 2, 2, 1],
-                          strides=[1, 2, 2, 1], padding='SAME')
 
 
 def weight_variable(shape):
@@ -66,18 +57,19 @@ def bias_variable(shape):
 
 def main(_):
     global TOTAL, ID_LENGTH
-    if not os.path.exists(TRAIN_FILE) or not os.path.exists(TEST_FILE):
-        music()
+    if not os.path.exists(TRAIN_FILE):
+        music.main()
 
     # Import data
-    with open(TRAIN_FILE, 'r') as filer:
-        data_train = json.load(filer)
+    with open(TRAIN_FILE, 'r') as file:
+        data = json.load(file)
+        data_train = data["train"]
+        data_test = data["test"]
+        iddict = data["keys"]
 
-    # Import data
-    with open(TEST_FILE, 'r') as filer:
-        data_test = json.load(filer)
-
+    # Length of input
     TOTAL = len(data_train[0][0])
+    # Length of output
     ID_LENGTH = len(data_train[0][1])
 
     # Create the model
@@ -109,16 +101,21 @@ def main(_):
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        for i in range(20000):
-            batch = random.shuffle(data_train)[:10]
+        for i in range(10000):
+            inds = npr.randint(len(data_train), size=10)
+            batch = [data_train[i] for i in inds]
+            left = [entry[0] for entry in batch]
+            right = [entry[1] for entry in batch]
             if i % 100 == 0:
                 train_accuracy = accuracy.eval(feed_dict={
-                    x: batch[0], y_: batch[1]})
+                    x: left, y_: right})
                 print('step %d, training accuracy %g' % (i, train_accuracy))
-                train_step.run(feed_dict={x: batch[0], y_: batch[1]})
+            train_step.run(feed_dict={x: left, y_: right})
 
-    print('test accuracy %g' % accuracy.eval(feed_dict={
-        x: data_test[:][0], y_: data_test[:][1]}))
+        left = [entry[0] for entry in data_test]
+        right = [entry[1] for entry in data_test]
+        print('test accuracy: ', accuracy.eval(feed_dict={
+            x: left, y_: right}))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
